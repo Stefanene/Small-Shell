@@ -18,6 +18,8 @@ void handleStop() {
 
 void runShell(char** cmdStr, int *num) {
 	int status;
+	pid_t spawnpid = -5;
+	int fileStuff;
 
 	struct sigaction SIGINT_action = {0};
 	struct sigaction SIGTSTP_action = {0};
@@ -58,17 +60,75 @@ void runShell(char** cmdStr, int *num) {
 			printf("terminated by signal %d\n", WTERMSIG(status));
 		}
 	}
+
+	//other commands
+	else {
+		
+		spawnpid = fork(); //fork initial process
+
+		switch (spawnpid) {
+			case -1:  //something went wrong with forking
+				perror("hull breach!");
+				exit(1);
+				break;
+			case 0:  // in child process
+				//process command line
+				for (int i = 1; i < *num; i++) {
+
+					//input file specified
+					if(strcmp(cmdStr[i], ">") == 0) {
+						fileStuff = open(cmdStr[i+1], O_RDONLY);
+						if(dup2(fileStuff, STDIN_FILENO) == -1) {
+							perror("cannot open() in");
+							exit(1);
+						}
+					}
+
+					//output file specified
+					if(strcmp(cmdStr[i], "<") == 0) {
+						fileStuff = open(cmdStr[i + 1], O_CREAT | O_RDWR | O_TRUNC, 0644);
+						if(dup2(fileStuff, STDOUT_FILENO) == -1) {
+							perror("cannot open() out");
+							exit(1);
+						}
+					}
+
+				}
+				close(fileStuff);
+
+				char* args[512];
+				args[0] = cmdStr[0]; //prepare exec() arguments
+
+				//finally execute command
+				int status_code = execvp(cmdStr[0], args);
+				if(status_code == -1) {
+					printf("%s: no such file or directory\n", cmdStr[0]);
+					exit(1);
+				}
+
+				break;
+			default:  //in parent process
+
+				//wait for child to terminate
+				waitpid(spawnpid, &status, 0);
+
+				break;
+		}
+
+	}
 		
 }
 
 
-void askForCmd(char** cmdStr, int *inSize) {
+int askForCmd(char** cmdStr, int *inSize) {
 	char inBuffer[MAX_INPUT_LENGTH];
 	char* stuff;
 
 	printf(": ");
 	fgets(inBuffer, MAX_INPUT_LENGTH, stdin);
 	strtok(inBuffer, "\n");  //get rid of newline from fgets
+
+	if(inBuffer[0] == '#') return 0;  //is a comment
 
 	//parse user input
 	stuff = strtok(inBuffer, " ");	
@@ -78,6 +138,7 @@ void askForCmd(char** cmdStr, int *inSize) {
 		stuff = strtok(NULL, " ");
 	}
 
+	return 1;
 }
 
 
@@ -86,6 +147,8 @@ int main() {
 	int inSize;
 	char* cmdStr[512];
 
+	int notComm = 1;
+
 	while(1) {
 		inSize = 0;
 		memset(cmdStr, '\0', 512);
@@ -93,9 +156,10 @@ int main() {
 		fflush(stdin);
 
 		//ask user for command
-		askForCmd(cmdStr, &inSize);
+		notComm = askForCmd(cmdStr, &inSize);
 		//execut command in shell
-		runShell(cmdStr, &inSize);
+		if(notComm) runShell(cmdStr, &inSize);
+		else printf("comments are not executed\n");
 	}
 
 	return 0;
