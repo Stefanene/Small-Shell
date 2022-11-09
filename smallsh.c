@@ -96,6 +96,16 @@ void runShell(char** cmdStr, int *num) {
 				//process command line
 				for (int i = 1; i < *num; i++) {
 
+					//if in background mode without a specified file, use /dev/null 
+					if(backToggle) {
+						hasFile = 1;
+						fileStuff = open("/dev/null", O_RDONLY);
+						if(dup2(fileStuff, STDIN_FILENO) == -1) {
+							perror("source open()");
+							exit(1);
+						}
+					}
+
 					//input file specified
 					if(strcmp(cmdStr[i], "<") == 0) {
 						hasFile = 1;
