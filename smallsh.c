@@ -21,6 +21,7 @@ void handleStop() {
 		foregroundOnly = 1;  //change modes
 		printf("\nEntering foreground-only mode (& is now ignored)\n");
 	}
+	fflush(stdout);
 }
 
 
@@ -78,6 +79,7 @@ void runShell(char** cmdStr, int *num) {
 		} else if (WIFSIGNALED(status)){
 			printf("terminated by signal %d\n", WTERMSIG(status));
 		}
+		fflush(stdout);
 	}
 
 	//other commands
@@ -129,6 +131,7 @@ void runShell(char** cmdStr, int *num) {
 				if(status_code == -1) {
 					if(strcmp(cmdStr[0], "\n") != 0) {  //ignore empty lines
 						printf("%s: no such file or directory\n", cmdStr[0]);
+						fflush(stdout);
 					}
 					exit(1);
 				}
@@ -139,11 +142,28 @@ void runShell(char** cmdStr, int *num) {
 				//print pid if a background process
 				if(backToggle) {
 					printf("background process pid is %d\n", spawnpid);
+					fflush(stdout);
 				}
 				//otherwise, in foreground
 				else {
 					//wait for child to terminate
 					waitpid(spawnpid, &status, 0);
+					//deal with backgound process completion
+					if(WIFSIGNALED(status)) { //check if child is dead
+						printf("terminated by signal %d\n", WTERMSIG(status));
+						fflush(stdout);
+					}
+					while (spawnpid != -1) { //keep fetching pid until process is killed
+						spawnpid = waitpid(-1, &status, WNOHANG);	
+						//print after results killed
+						if (WIFEXITED(status) != 0 && spawnpid > 0){
+							printf("background pid %d is done: exit value %d\n", spawnpid, WEXITSTATUS(status));
+							fflush(stdout);
+						} else if (WIFSIGNALED(status) != 0 && spawnpid > 0 && backToggle == 0){
+							printf("background pid %d is done: terminated by signal %d\n", spawnpid, WTERMSIG(status));
+							fflush(stdout);
+						}
+					}
 				}
 				break;
 		}
@@ -160,6 +180,8 @@ int askForCmd(char** cmdStr, int *inSize) {
 	printf(": ");
 	fgets(inBuffer, MAX_INPUT_LENGTH, stdin);
 	strtok(inBuffer, "\n");  //get rid of newline from fgets
+
+	fflush(stdin);
 
 	if(inBuffer[0] == '#') return 0;  //is a comment
 
