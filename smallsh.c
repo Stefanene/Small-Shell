@@ -10,9 +10,17 @@
 
 #define MAX_INPUT_LENGTH 2048
 
+int foregroundOnly;
 
+//custom function for CTRL+Z
 void handleStop() {
-
+	if (foregroundOnly) {  //in foreground only mode
+		foregroundOnly = 0;  //change modes
+		printf("\nExiting foreground-only mode\n" );
+	} else {  //in background mode
+		foregroundOnly = 1;  //change modes
+		printf("\nEntering foreground-only mode (& is now ignored)\n");
+	}
 }
 
 
@@ -21,6 +29,7 @@ void runShell(char** cmdStr, int *num) {
 	pid_t spawnpid = -5;
 	int fileStuff;
 	int hasFile = 0;
+	int backToggle = 0;
 
 	struct sigaction SIGINT_action = {0};
 	struct sigaction SIGTSTP_action = {0};
@@ -30,11 +39,20 @@ void runShell(char** cmdStr, int *num) {
 	sigfillset(&SIGINT_action.sa_mask);
 	SIGINT_action.sa_flags = 0;
 	sigaction(SIGINT, &SIGINT_action, NULL);
+
 	//code for dealing with CTRL+Z command
-	SIGTSTP_action.sa_handler = handleStop; //custom function
+	SIGTSTP_action.sa_handler = handleStop; //custom function above
 	sigfillset(&SIGTSTP_action.sa_mask);
 	SIGTSTP_action.sa_flags = 0;
   	sigaction(SIGTSTP, &SIGTSTP_action, NULL);
+
+  	//check for background mode symbol
+  	if(strcmp(cmdStr[*num-1], "&") == 0) {
+  		//delete last argument index of command
+  		(*num)--;
+  		cmdStr[*num] = NULL;
+  		if(!foregroundOnly) backToggle = 1;  //enter bacgound mode if foregroundOnly is off
+  	}
 
   	//exit command
 	if (strcmp(cmdStr[0], "exit") == 0) {
@@ -109,16 +127,24 @@ void runShell(char** cmdStr, int *num) {
 				//finally execute command
 				int status_code = execvp(cmdStr[0], cmdStr);
 				if(status_code == -1) {
-					fprintf(stderr, "%s: no such file or directory\n", cmdStr[0]);
+					if(strcmp(cmdStr[0], "\n") != 0) {  //ignore empty lines
+						printf("%s: no such file or directory\n", cmdStr[0]);
+					}
 					exit(1);
 				}
 
 				break;
 			default:  //in parent process
-
-				//wait for child to terminate
-				waitpid(spawnpid, &status, 0);
-
+				
+				//print pid if a background process
+				if(backToggle) {
+					printf("background process pid is %d\n", spawnpid);
+				}
+				//otherwise, in foreground
+				else {
+					//wait for child to terminate
+					waitpid(spawnpid, &status, 0);
+				}
 				break;
 		}
 
@@ -137,6 +163,18 @@ int askForCmd(char** cmdStr, int *inSize) {
 
 	if(inBuffer[0] == '#') return 0;  //is a comment
 
+	//deal with $$ -- source code for this method referenced from Greg Noetzel on GitHub
+	for (int i = 0; i < strlen(inBuffer); i ++) {
+		// swapping $$ for %d
+		if ((inBuffer[i] == '$')  && (inBuffer[i + 1] == '$')) {
+			char * temp = strdup(inBuffer);
+			temp[i] = '%';
+			temp[i + 1] = 'd';
+			sprintf(inBuffer, temp, getpid());  //sprintf the pid in the buffer string
+			free(temp);
+		}
+	}
+
 	//parse user input and update size of input command
 	stuff = strtok(inBuffer, " ");	
 	while(stuff != NULL) {
@@ -153,6 +191,7 @@ int main() {
 
 	int inSize;
 	char* cmdStr[512];
+	foregroundOnly = 0;  //mode set to not foreground-only by default
 
 	int notComm = 1;
 
@@ -166,7 +205,6 @@ int main() {
 		notComm = askForCmd(cmdStr, &inSize);
 		//execut command in shell
 		if(notComm) runShell(cmdStr, &inSize);
-		else printf("comments are not executed\n");
 	}
 
 	return 0;
