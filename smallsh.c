@@ -20,6 +20,7 @@ void runShell(char** cmdStr, int *num) {
 	int status;
 	pid_t spawnpid = -5;
 	int fileStuff;
+	int hasFile = 0;
 
 	struct sigaction SIGINT_action = {0};
 	struct sigaction SIGTSTP_action = {0};
@@ -76,7 +77,8 @@ void runShell(char** cmdStr, int *num) {
 				for (int i = 1; i < *num; i++) {
 
 					//input file specified
-					if(strcmp(cmdStr[i], ">") == 0) {
+					if(strcmp(cmdStr[i], "<") == 0) {
+						hasFile = 1;
 						fileStuff = open(cmdStr[i+1], O_RDONLY);
 						if(dup2(fileStuff, STDIN_FILENO) == -1) {
 							perror("cannot open() in");
@@ -85,7 +87,8 @@ void runShell(char** cmdStr, int *num) {
 					}
 
 					//output file specified
-					if(strcmp(cmdStr[i], "<") == 0) {
+					if(strcmp(cmdStr[i], ">") == 0) {
+						hasFile = 1;
 						fileStuff = open(cmdStr[i + 1], O_CREAT | O_RDWR | O_TRUNC, 0644);
 						if(dup2(fileStuff, STDOUT_FILENO) == -1) {
 							perror("cannot open() out");
@@ -94,15 +97,19 @@ void runShell(char** cmdStr, int *num) {
 					}
 
 				}
-				close(fileStuff);
-
-				char* args[512];
-				args[0] = cmdStr[0]; //prepare exec() arguments
+			
+				//truncate command line if has file
+				if(hasFile) {
+					close(fileStuff);  //close file
+					for (int i = 1; i < *num; i++) {
+						cmdStr[i] = NULL;  //truncate
+					}
+				}
 
 				//finally execute command
-				int status_code = execvp(cmdStr[0], args);
+				int status_code = execvp(cmdStr[0], cmdStr);
 				if(status_code == -1) {
-					printf("%s: no such file or directory\n", cmdStr[0]);
+					fprintf(stderr, "%s: no such file or directory\n", cmdStr[0]);
 					exit(1);
 				}
 
@@ -130,7 +137,7 @@ int askForCmd(char** cmdStr, int *inSize) {
 
 	if(inBuffer[0] == '#') return 0;  //is a comment
 
-	//parse user input
+	//parse user input and update size of input command
 	stuff = strtok(inBuffer, " ");	
 	while(stuff != NULL) {
 		cmdStr[*inSize] = strdup(stuff);
